@@ -1,0 +1,254 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  SAM template for creating a WebSocket API with AWS Lambda functions and Amazon DynamoDB table acting as a Real Time Data source.
+
+Transform:
+- AWS::Serverless-2016-10-31
+
+# Global values that are applied to all applicable resources in this template
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Architectures:
+      - x86_64
+    MemorySize: 128
+    Timeout: 15
+
+Parameters:
+  realTimeItemKey:
+    Type: String
+    Default: 'vehicle-id'
+    Description: >
+      (Required) The key of the real time item that will be used to send real time data to the connected clients.
+    MinLength: 3
+    MaxLength: 50
+    AllowedPattern: ^[A-Za-z-]+$
+    ConstraintDescription: 'Required. Can be characters and hyphen only. No numbers or special characters allowed.'
+  isQueryParam:
+    Type: String
+    Default: 'true'
+    Description: >
+      (Required) A boolean value to determine if the real time item key is received by query parameter or not.
+    AllowedValues:
+      - 'true'
+      - 'false'
+    ConstraintDescription: 'Required. Can be true or false only'
+  WebSocketConnectionsTableNameSuffix:
+    Type: String
+    Default: 'websocket_connections'
+    Description: >
+      (uksb-1tthgi812) (tag:apigw-websocket-api-lambda)
+      (Required) The suffix of the name of the Amazon DynamoDB table where connection identifiers 
+      will be stored. The table name will be prefixed by the Stack Name.
+    MinLength: 3
+    MaxLength: 50
+    AllowedPattern: ^[A-Za-z_]+$
+    ConstraintDescription: 'Required. Can be characters and underscore only. No numbers or special characters allowed.'
+  ReadCapacityUnits:
+    Description: Provisioned read throughput
+    Type: Number
+    Default: 5
+    MinValue: 5
+    MaxValue: 10000
+    ConstraintDescription: must be between 5 and 10000
+  WriteCapacityUnits:
+    Description: Provisioned write throughput
+    Type: Number
+    Default: 5
+    MinValue: 5
+    MaxValue: 10000
+    ConstraintDescription: must be between 5 and 10000
+
+Resources:
+  WebSocketApi:
+    Type: 'AWS::ApiGatewayV2::Api'
+    Properties:
+      Name: !Ref AWS::StackName
+      Description: An Amazon API Gateway WebSocket API and an AWS Lambda function.
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+  Deployment:
+    Type: AWS::ApiGatewayV2::Deployment
+    DependsOn:
+      - OnConnectRoute
+      - OnDisconnectRoute
+    Properties:
+      ApiId: !Ref WebSocketApi
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      StageName: develop
+      Description: Develop Stage
+      DeploymentId: !Ref Deployment
+      ApiId: !Ref WebSocketApi
+
+  #### OnConnect Lambda Function ####
+  OnConnectLambdaFunction:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-onconnect-function'
+      Handler: src/handlers/onconnect.handler
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref WebSocketConnectionManager
+          REAL_TIME_ITEM_KEY: !Ref realTimeItemKey
+          IS_QUERY_PARAM: !Ref isQueryParam
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref WebSocketConnectionManager
+  OnConnectFunctionResourcePermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      Principal: apigateway.amazonaws.com
+      FunctionName: !Ref OnConnectLambdaFunction
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*'
+  OnConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      Description: OnConnect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri:
+        Fn::Sub:
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnConnectLambdaFunction.Arn}/invocations
+  OnConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $connect
+      AuthorizationType: NONE
+      OperationName: OnConnectRoute
+      Target: !Join
+        - '/'
+        - - 'integrations'
+          - !Ref OnConnectIntegration
+
+  ### OnDisconnect Lambda Function ###
+  OnDisconnectLambdaFunction:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-ondisconnect-function'
+      Handler: src/handlers/ondisconnect.handler
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref WebSocketConnectionManager
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref WebSocketConnectionManager
+  OnDisconnectFunctionResourcePermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      Principal: apigateway.amazonaws.com
+      FunctionName: !Ref OnDisconnectLambdaFunction
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*'
+  OnDisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      Description: OnDisconnect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri:
+        Fn::Sub:
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnDisconnectLambdaFunction.Arn}/invocations
+  OnDisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      OperationName: OnDisconnectRoute
+      Target: !Join
+        - '/'
+        - - 'integrations'
+          - !Ref OnDisconnectIntegration
+
+  WebSocketConnectionManager:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: connectionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connectionId
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: !Ref ReadCapacityUnits
+        WriteCapacityUnits: !Ref WriteCapacityUnits
+      TableName:
+        !Sub
+        - ${AWS::StackName}-${TableNameSuffix}
+        - { TableNameSuffix: !Ref WebSocketConnectionsTableNameSuffix }
+
+
+  RealTimeData:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: vehicleId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: vehicleId
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+
+  OnReceiveRealTimeItemFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/onreceiveitem.handler
+      Description: DynamoDB stream that triggers when a new real time item is inserted or modified.
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref WebSocketConnectionManager
+          WS_ENDPOINT: !Join [ '', [ 'https://', !Ref WebSocketApi, '.execute-api.',!Ref 'AWS::Region','.amazonaws.com/',!Ref 'Stage' ] ]
+          REAL_TIME_ITEM_KEY: !Ref realTimeItemKey
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RealTimeData
+        - DynamoDBCrudPolicy:
+            TableName: !Ref WebSocketConnectionManager
+        - Statement:
+            - Effect: Allow
+              Action:
+                - 'execute-api:ManageConnections'
+              Resource:
+                - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*'
+      Events:
+        DynamoDBTable:
+          Type: DynamoDB
+          Properties:
+            Stream:
+              !GetAtt RealTimeData.StreamArn
+            StartingPosition: TRIM_HORIZON
+            BatchSize: 100
+            FilterCriteria:
+              Filters:
+                # Filter pattern to check only inserted action on DynamoDB
+                - Pattern: '{"eventName": ["INSERT", "MODIFY"]}'
+
+
+# Outputs section of the template
+Outputs:
+  OnConnectLambdaFunctionArn:
+    Description: "OnConnect function ARN"
+    Value: !GetAtt OnConnectLambdaFunction.Arn
+  OnDisconnectLambdaFunctionArn:
+    Description: "OnDisconnect function ARN"
+    Value: !GetAtt OnDisconnectLambdaFunction.Arn
+  OnReceiveRealTimeItemFunctionArn:
+    Description: "OnReceiveRealTimeItem function ARN"
+    Value: !GetAtt OnReceiveRealTimeItemFunction.Arn
+  WebSocketURL:
+    Description: "The WSS Protocol URL to connect to"
+    Value: !Join [ '', [ 'wss://', !Ref WebSocketApi, '.execute-api.',!Ref 'AWS::Region','.amazonaws.com/',!Ref 'Stage' ] ]
+  WebSocketConnectionManager:
+    Description: "WebSocket connections table ARN"
+    Value: !GetAtt WebSocketConnectionManager.Arn

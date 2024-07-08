@@ -1,0 +1,21 @@
+version = 0.1
+["\u001b[A".deploy.parameters]
+stack_name = "sam-app"
+resolve_s3 = true
+s3_prefix = "sam-app"
+region = "eu-central-1"
+confirm_changeset = true
+profile= "amatore-macos"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "realTimeItemKey=\"vehicle-id\" isQueryParam=\"true\" WebSocketConnectionsTableNameSuffix=\"websocket_connections\" ReadCapacityUnits=\"5\" WriteCapacityUnits=\"5\""
+image_repositories = []
+
+[default.deploy.parameters]
+stack_name = "sam-app"
+resolve_s3 = true
+s3_prefix = "sam-app"
+region = "eu-west-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "realTimeItemKey=\"vehicle-id\" isQueryParam=\"true\" WebSocketConnectionsTableNameSuffix=\"websocket_connections\" ReadCapacityUnits=\"5\" WriteCapacityUnits=\"5\""
+image_repositories = []
