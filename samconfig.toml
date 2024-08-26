@@ -14,7 +14,7 @@ image_repositories = []
 stack_name = "sam-app"
 resolve_s3 = true
 s3_prefix = "sam-app"
-region = "eu-west-1"
+region = "eu-central-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = "realTimeItemKey=\"vehicle-id\" isQueryParam=\"true\" WebSocketConnectionsTableNameSuffix=\"websocket_connections\" ReadCapacityUnits=\"5\" WriteCapacityUnits=\"5\""

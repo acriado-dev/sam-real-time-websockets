@@ -33,9 +33,35 @@ The main goal of the project is to provide real time data integration for any cl
 is able to integrate with the platform. 
 
 ### Architecture
-//TODO: Add architecture diagram
+In order to provide a clear overview of the architecture, the following Big picture diagram contains
+the main components of the applicaiton and the most rellevant workflow steps.
 
+![architecture.png](resources/architecture.png)
 
+#### Components:
+- **Client Integration**: Frontend application (Mobile & WebApp) that is able to connect to the WebSocket API and receive the real time data updates.
+- **WebSocket API Gateway**: Entry point of the application. It's responsible for handling the WebSocket connections and the messages that are sent to the clients.
+- **OnConnect Lambda Function**: Is triggered when a client connects to the WebSocket API Gateway. Stores the connection information in the DynamoDB table.
+- **OnDisconnect Lambda Function**: Is triggered when a client disconnects from the WebSocket API Gateway. Removes the connection information from the DynamoDB table.
+- **OnReceiveRealTimeItem Lambda Function**: Is triggered when a new item is added to the DynamoDB table. Sends the real time data updates to the clients that are interested in the item.
+- **RealTimeData DynamoDB Table**: Used to store the real time data items. Each item has a unique key and a value that represents the data that is sent to the clients.
+- **WebSocketConnectionManager DynamoDB Table**: Stores the connection information of the clients that are connected to the WebSocket API Gateway. Each item has a unique connectionId and a realTimeItemKey that represents the item that the client is interested in.
+- **Integration sources**: Data sources responsible for sending the real time data updates to the platform. For this project, the following sources has been considered:
+  - **SDK**: AWS SDK and CLI for any language compatible.
+  - **Data transfer**: Any data transfer mechanism that is able to send the data to the platform. For example, data replication from other database.
+  - **Device Location & Sensors**: IoT devices that are able to send the data to the platform. For example, GPS location of a vehicle.
+  - **REST API**: Any REST API that is able to send the data to the platform. For example, a weather API that sends the weather data to the platform.
+  - **Async (SNS, SQS)**: Any asynchronous mechanism that is able to send the data to the platform. For example, an SNS topic that sends the data to the platform.
+  - **S3 Events**: Any event that is triggered by an S3 bucket. For example, an event that is triggered when a new file is uploaded to the bucket.
+
+#### Workflow:
+1. The client integration connects to the WebSocket API Gateway.
+2. The WebSocket API Gateway triggers the OnConnect Lambda function.
+3. The OnConnect Lambda function stores the connection information in the WebSocketConnectionManager DynamoDB table.
+4. RealTimeData items are added to the RealTimeData DynamoDB table from the integration sources.
+5. The OnReceiveRealTimeItem lambda function is triggered through DynamoDB Streams.
+6. The OnReceiveRealTimeItem lambda function sends the real time data updates to the clients that are interested in the item.
+7. The client integration receives the real time data updates from the WebSocket API Gateway.
 
 ### Project Structure
 This section contains an overview of how the project structured.
@@ -123,7 +149,14 @@ Each lambda can be invoked locally using the SAM CLI
 
 ### Deploy
 The deployment of the SAM Application can be don in several environments, development, staging, and production. 
-The configuration of the deployment is done in the `samconfig.toml` file. To deploy the application, run the following command for each environment:
+The configuration of the deployment is done in the `samconfig.toml` file. 
+
+In the process of deployment, the SAM CLI will create a CloudFormation stack with the resources defined in the `template.yaml` file.
+
+Example of the CloudFormation stack created by the SAM CLI:
+![cloudformation-stack.png](resources/cloudformation-stack.png)
+
+To deploy the application, run the following command for each environment:
 
 - Development
 ```bash
